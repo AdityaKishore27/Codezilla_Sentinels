@@ -308,14 +308,196 @@ class FraudDetectionDashboard {
 
         this.showLoading(true);
         
-        // Simulate file processing
-        setTimeout(() => {
-            const newTransactions = this.generateSyntheticTransactions(50);
-            this.currentTransactions = [...this.currentTransactions, ...newTransactions];
-            this.populateHistoricalTable();
-            this.showUploadStatus(statusElement, `Successfully processed ${newTransactions.length} transactions`, 'success');
+        // Read and process the actual CSV file
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const csvText = e.target.result;
+                const processedData = this.processCSVData(csvText);
+                
+                if (processedData.transactions.length === 0) {
+                    this.showUploadStatus(statusElement, 'No valid transactions found in CSV file', 'error');
+                    this.showLoading(false);
+                    return;
+                }
+                
+                // Add new transactions
+                this.currentTransactions = [...this.currentTransactions, ...processedData.transactions];
+                
+                // Create new user profiles for unique users
+                const newProfiles = this.createUserProfilesFromTransactions(processedData.transactions);
+                this.data.userProfiles = [...this.data.userProfiles, ...newProfiles];
+                
+                // Update displays
+                this.populateHistoricalTable();
+                this.displayUserProfiles();
+                
+                const message = `Successfully processed ${processedData.transactions.length} transactions. Created ${newProfiles.length} new user profiles.`;
+                this.showUploadStatus(statusElement, message, 'success');
+                this.showLoading(false);
+                
+            } catch (error) {
+                console.error('Error processing CSV:', error);
+                this.showUploadStatus(statusElement, 'Error processing CSV file. Please check the format.', 'error');
+                this.showLoading(false);
+            }
+        };
+        
+        reader.onerror = () => {
+            this.showUploadStatus(statusElement, 'Error reading file', 'error');
             this.showLoading(false);
-        }, 2000);
+        };
+        
+        reader.readAsText(file);
+    }
+
+    processCSVData(csvText) {
+        const lines = csvText.trim().split('\n');
+        if (lines.length < 2) {
+            throw new Error('CSV file must have at least a header and one data row');
+        }
+        
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        const transactions = [];
+        const rawUserData = {};
+        
+        // Expected column mappings (flexible)
+        const columnMap = {
+            'user_id': ['user_id', 'userid', 'user id', 'id'],
+            'transaction_type': ['transaction_type', 'transactiontype', 'transaction type', 'type'],
+            'login_attempts': ['login_attempts', 'loginattempts', 'login attempts', 'attempts'],
+            'transaction_count': ['transaction_count', 'transactioncount', 'transaction count', 'count'],
+            'transaction_velocity': ['transaction_velocity', 'transactionvelocity', 'transaction velocity', 'velocity'],
+            'location': ['location', 'city', 'place'],
+            'timestamp': ['timestamp', 'time', 'datetime', 'date'],
+            'fraud': ['fraud', 'is_fraud', 'fraudulent']
+        };
+        
+        // Find column indices
+        const indices = {};
+        for (const [key, variants] of Object.entries(columnMap)) {
+            const index = headers.findIndex(h => variants.includes(h));
+            if (index !== -1) {
+                indices[key] = index;
+            }
+        }
+        
+        // Process data rows
+        for (let i = 1; i < lines.length; i++) {
+            const values = lines[i].split(',').map(v => v.trim());
+            if (values.length < headers.length) continue;
+            
+            try {
+                const transaction = {
+                    id: `TXN_CSV_${Date.now()}_${i}`,
+                    userId: values[indices.user_id] || `USER_${Math.floor(Math.random() * 9000) + 1000}`,
+                    transactionType: values[indices.transaction_type] || 'Credit Card',
+                    loginAttempts: parseInt(values[indices.login_attempts]) || Math.floor(Math.random() * 5) + 1,
+                    transactionCount: parseInt(values[indices.transaction_count]) || Math.floor(Math.random() * 10) + 1,
+                    transactionVelocity: parseFloat(values[indices.transaction_velocity]) || (Math.random() * 2).toFixed(3),
+                    location: values[indices.location] || 'Mumbai',
+                    timestamp: values[indices.timestamp] || new Date().toISOString(),
+                    fraud: values[indices.fraud] ? (values[indices.fraud].toLowerCase() === 'true' || values[indices.fraud] === '1') : undefined
+                };
+                
+                // Calculate risk score
+                const riskData = this.calculateRiskScore(transaction);
+                transaction.riskScore = riskData.score;
+                transaction.riskCategory = riskData.category;
+                transaction.isAnomaly = riskData.isAnomaly;
+                
+                // Use provided fraud value or calculated one
+                if (transaction.fraud === undefined) {
+                    transaction.fraud = riskData.fraud;
+                }
+                
+                transactions.push(transaction);
+                
+                // Collect user data for profile creation
+                if (!rawUserData[transaction.userId]) {
+                    rawUserData[transaction.userId] = [];
+                }
+                rawUserData[transaction.userId].push(transaction);
+                
+            } catch (error) {
+                console.warn(`Skipping invalid row ${i}:`, error);
+            }
+        }
+        
+        return { transactions, rawUserData };
+    }
+
+    createUserProfilesFromTransactions(transactions) {
+        const newProfiles = [];
+        const userTransactions = {};
+        
+        // Group transactions by user
+        transactions.forEach(transaction => {
+            if (!userTransactions[transaction.userId]) {
+                userTransactions[transaction.userId] = [];
+            }
+            userTransactions[transaction.userId].push(transaction);
+        });
+        
+        // Create profiles for new users
+        for (const [userId, userTxns] of Object.entries(userTransactions)) {
+            // Check if user profile already exists
+            const existingProfile = this.data.userProfiles.find(p => p.userId === userId);
+            if (existingProfile) continue;
+            
+            if (userTxns.length >= 2) { // Need at least 2 transactions for meaningful profile
+                const profile = this.calculateUserProfile(userId, userTxns);
+                newProfiles.push(profile);
+            }
+        }
+        
+        return newProfiles;
+    }
+
+    calculateUserProfile(userId, transactions) {
+        const loginAttempts = transactions.map(t => t.loginAttempts);
+        const transactionCounts = transactions.map(t => t.transactionCount);
+        const velocities = transactions.map(t => parseFloat(t.transactionVelocity));
+        const locations = transactions.map(t => t.location);
+        const fraudCount = transactions.filter(t => t.fraud === 1).length;
+        
+        // Calculate statistics
+        const avgLoginAttempts = loginAttempts.reduce((a, b) => a + b, 0) / loginAttempts.length;
+        const avgTransactionCount = transactionCounts.reduce((a, b) => a + b, 0) / transactionCounts.length;
+        const avgTransactionVelocity = velocities.reduce((a, b) => a + b, 0) / velocities.length;
+        
+        // Find most common location
+        const locationCounts = {};
+        locations.forEach(loc => {
+            locationCounts[loc] = (locationCounts[loc] || 0) + 1;
+        });
+        const preferredLocation = Object.keys(locationCounts).reduce((a, b) => 
+            locationCounts[a] > locationCounts[b] ? a : b
+        );
+        
+        // Calculate anomaly score (simplified)
+        let anomalyScore = 0;
+        if (avgLoginAttempts > 3) anomalyScore -= 0.1;
+        if (avgTransactionVelocity > 2) anomalyScore -= 0.15;
+        if (avgTransactionCount > 10) anomalyScore -= 0.1;
+        
+        // Add some randomness for variability
+        anomalyScore += (Math.random() - 0.5) * 0.2;
+        
+        const isAnomalous = anomalyScore < -0.05;
+        const fraudRate = fraudCount / transactions.length;
+        
+        return {
+            userId,
+            avgLoginAttempts: parseFloat(avgLoginAttempts.toFixed(2)),
+            avgTransactionCount: parseFloat(avgTransactionCount.toFixed(2)),
+            avgTransactionVelocity: parseFloat(avgTransactionVelocity.toFixed(2)),
+            preferredLocation,
+            transactionFrequency: parseFloat((transactions.length / 30).toFixed(1)), // Assuming 30-day period
+            anomalyScore: parseFloat(anomalyScore.toFixed(3)),
+            isAnomalous,
+            fraudRate: parseFloat(fraudRate.toFixed(3))
+        };
     }
 
     showUploadStatus(element, message, type) {
@@ -387,12 +569,14 @@ class FraudDetectionDashboard {
             fraud = 0;
         } else if (score < 0.7) {
             category = 'Moderate';
-            isAnomaly = Math.random() < 0.3;
-            fraud = Math.random() < 0.1 ? 1 : 0;
+            isAnomaly = Math.random() < 0.4;
+            // Moderate risk has higher fraud probability
+            fraud = Math.random() < 0.4 ? 1 : 0;
         } else {
             category = 'High';
             isAnomaly = Math.random() < 0.8;
-            fraud = Math.random() < 0.6 ? 1 : 0;
+            // High risk has much higher fraud probability
+            fraud = Math.random() < 0.85 ? 1 : 0;
         }
         
         return {
@@ -419,6 +603,9 @@ class FraudDetectionDashboard {
     createTransactionRow(transaction) {
         const row = document.createElement('tr');
         row.style.cursor = 'pointer';
+        const riskReasons = this.getRiskReasons(transaction);
+        const reasonsText = riskReasons.length > 0 ? riskReasons.slice(0, 2).join(', ') + (riskReasons.length > 2 ? '...' : '') : 'Normal patterns';
+        
         row.innerHTML = `
             <td class="font-mono">${transaction.id}</td>
             <td class="font-mono">${transaction.userId}</td>
@@ -426,6 +613,9 @@ class FraudDetectionDashboard {
             <td class="font-mono">${transaction.riskScore}</td>
             <td><span class="risk-badge ${transaction.riskCategory.toLowerCase()}">${transaction.riskCategory}</span></td>
             <td><span class="anomaly-indicator ${transaction.isAnomaly ? 'yes' : 'no'}">${transaction.isAnomaly ? 'Yes' : 'No'}</span></td>
+            <td class="risk-reasons" title="${riskReasons.join('; ')}" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                <small>${reasonsText}</small>
+            </td>
             <td>${new Date(transaction.timestamp).toLocaleString()}</td>
         `;
         row.addEventListener('click', () => this.showTransactionDetails(transaction));
@@ -538,8 +728,60 @@ class FraudDetectionDashboard {
         return this.data.userProfiles.find(profile => profile.userId === userId);
     }
 
+    getRiskReasons(transaction) {
+        const reasons = [];
+        
+        // High login attempts
+        if (transaction.loginAttempts > 5) {
+            reasons.push('Excessive login attempts (>5)');
+        } else if (transaction.loginAttempts > 3) {
+            reasons.push('High login attempts (>3)');
+        }
+        
+        // High transaction count
+        if (transaction.transactionCount > 15) {
+            reasons.push('Very high transaction count (>15)');
+        } else if (transaction.transactionCount > 10) {
+            reasons.push('High transaction count (>10)');
+        }
+        
+        // High velocity
+        if (transaction.transactionVelocity > 3) {
+            reasons.push('Extremely high velocity (>3)');
+        } else if (transaction.transactionVelocity > 2) {
+            reasons.push('High transaction velocity (>2)');
+        }
+        
+        // Time-based patterns
+        const hour = new Date(transaction.timestamp).getHours();
+        if (hour >= 0 && hour <= 5) {
+            reasons.push('Late night activity (suspicious timing)');
+        }
+        
+        // User behavior anomaly
+        if (transaction.isAnomaly) {
+            reasons.push('Behavioral anomaly detected');
+        }
+        
+        // Location-based risk (simplified)
+        const riskyCities = ['Unknown', 'International'];
+        if (riskyCities.includes(transaction.location)) {
+            reasons.push('High-risk location');
+        }
+        
+        // Transaction type risk
+        if (transaction.transactionType === 'UPI' && transaction.transactionVelocity > 1.5) {
+            reasons.push('UPI with high velocity');
+        }
+        
+        return reasons;
+    }
+
     // Live Feed
     startLiveFeed() {
+        // Initialize empty state
+        this.initializeLiveFeedEmptyState();
+        
         // Simulate live transactions every 10 seconds
         setInterval(() => {
             if (Math.random() < 0.3) { // 30% chance
@@ -549,27 +791,93 @@ class FraudDetectionDashboard {
         }, 10000);
     }
 
+    initializeLiveFeedEmptyState() {
+        const feedContainer = document.getElementById('live-feed');
+        if (!feedContainer) return;
+        
+        let feedContent = feedContainer.querySelector('.feed-content');
+        if (!feedContent) {
+            feedContent = document.createElement('div');
+            feedContent.className = 'feed-content';
+            feedContainer.appendChild(feedContent);
+        }
+        
+        if (feedContent.children.length === 0) {
+            const emptyMessage = document.createElement('div');
+            emptyMessage.className = 'feed-empty';
+            emptyMessage.innerHTML = `
+                <div style="text-align: center; padding: var(--space-32);">
+                    <div style="font-size: 48px; margin-bottom: var(--space-16); opacity: 0.5;">📡</div>
+                    <h4 style="margin: 0 0 var(--space-8) 0; color: var(--color-text-secondary);">Monitoring Live Transactions</h4>
+                    <p style="margin: 0; color: var(--color-text-secondary);">New transactions will appear here in real-time</p>
+                </div>
+            `;
+            feedContent.appendChild(emptyMessage);
+        }
+    }
+
     addToLiveFeed(transaction) {
         const feedContainer = document.getElementById('live-feed');
         if (!feedContainer) return;
         
+        // Check if feed-content exists, if not create it
+        let feedContent = feedContainer.querySelector('.feed-content');
+        if (!feedContent) {
+            feedContent = document.createElement('div');
+            feedContent.className = 'feed-content';
+            feedContainer.appendChild(feedContent);
+        }
+        
         const feedItem = document.createElement('div');
         feedItem.className = `feed-item ${transaction.riskCategory.toLowerCase()}-risk`;
         
+        const riskReasons = this.getRiskReasons(transaction);
+        
         feedItem.innerHTML = `
-            <div>
-                <strong>${transaction.userId}</strong> - ${transaction.transactionType}
-                <br>
-                <small>Risk: ${transaction.riskScore} (${transaction.riskCategory})</small>
+            <div class="feed-item-content">
+                <div class="feed-item-header">
+                    <div>
+                        <div class="feed-item-user">${transaction.userId}</div>
+                        <div class="feed-item-type">${transaction.transactionType}</div>
+                    </div>
+                    <div class="feed-item-risk">
+                        <span class="feed-item-score" style="color: ${this.getRiskColor(transaction.riskScore)};">
+                            ${transaction.riskScore}
+                        </span>
+                        <span class="risk-badge ${transaction.riskCategory.toLowerCase()}">
+                            ${transaction.riskCategory}
+                        </span>
+                    </div>
+                </div>
+                <div class="feed-item-details">
+                    <span>Logins: ${transaction.loginAttempts}</span>
+                    <span>Velocity: ${transaction.transactionVelocity}</span>
+                    <span>Location: ${transaction.location}</span>
+                    ${transaction.isAnomaly ? '<span style="color: var(--color-error);">⚠️ Anomaly</span>' : ''}
+                </div>
+                ${riskReasons.length > 0 ? `
+                    <div class="feed-item-reasons">
+                        <small><strong>Risk Factors:</strong> ${riskReasons.join(', ')}</small>
+                    </div>
+                ` : ''}
             </div>
             <div class="feed-time">${new Date(transaction.timestamp).toLocaleTimeString()}</div>
         `;
         
-        feedContainer.insertBefore(feedItem, feedContainer.firstChild);
+        // Add click handler
+        feedItem.addEventListener('click', () => this.showTransactionDetails(transaction));
         
-        // Keep only last 10 items
-        while (feedContainer.children.length > 10) {
-            feedContainer.removeChild(feedContainer.lastChild);
+        // Check if there's an empty state message and remove it
+        const emptyMessage = feedContent.querySelector('.feed-empty');
+        if (emptyMessage) {
+            emptyMessage.remove();
+        }
+        
+        feedContent.insertBefore(feedItem, feedContent.firstChild);
+        
+        // Keep only last 15 items
+        while (feedContent.children.length > 15) {
+            feedContent.removeChild(feedContent.lastChild);
         }
         
         // Add to transactions list
@@ -699,6 +1007,9 @@ class FraudDetectionDashboard {
     }
 
     showTransactionDetails(transaction) {
+        const riskReasons = this.getRiskReasons(transaction);
+        const userProfile = this.getUserProfile(transaction.userId);
+        
         const content = `
             <div class="transaction-details">
                 <div style="display: grid; gap: var(--space-12);">
@@ -716,23 +1027,41 @@ class FraudDetectionDashboard {
                     </div>
                     <div class="risk-detail-item">
                         <span>Risk Score:</span>
-                        <span style="color: ${this.getRiskColor(transaction.riskScore)};">${transaction.riskScore}</span>
+                        <span style="color: ${this.getRiskColor(transaction.riskScore)}; font-weight: var(--font-weight-bold);">${transaction.riskScore}</span>
                     </div>
                     <div class="risk-detail-item">
                         <span>Category:</span>
                         <span class="risk-badge ${transaction.riskCategory.toLowerCase()}">${transaction.riskCategory}</span>
                     </div>
                     <div class="risk-detail-item">
+                        <span>Fraud Prediction:</span>
+                        <span class="status ${transaction.fraud ? 'status--error' : 'status--success'}">
+                            ${transaction.fraud ? 'Fraudulent' : 'Legitimate'}
+                        </span>
+                    </div>
+                    <div class="risk-detail-item">
+                        <span>Anomaly Detected:</span>
+                        <span style="color: ${transaction.isAnomaly ? 'var(--color-error)' : 'var(--color-success)'};">
+                            ${transaction.isAnomaly ? '⚠️ Yes' : '✅ No'}
+                        </span>
+                    </div>
+                    <div class="risk-detail-item">
                         <span>Login Attempts:</span>
-                        <span>${transaction.loginAttempts}</span>
+                        <span style="color: ${transaction.loginAttempts > 3 ? 'var(--color-warning)' : 'var(--color-text)'};">
+                            ${transaction.loginAttempts} ${userProfile ? `(avg: ${userProfile.avgLoginAttempts.toFixed(1)})` : ''}
+                        </span>
                     </div>
                     <div class="risk-detail-item">
                         <span>Transaction Count:</span>
-                        <span>${transaction.transactionCount}</span>
+                        <span style="color: ${transaction.transactionCount > 10 ? 'var(--color-warning)' : 'var(--color-text)'};">
+                            ${transaction.transactionCount} ${userProfile ? `(avg: ${userProfile.avgTransactionCount.toFixed(1)})` : ''}
+                        </span>
                     </div>
                     <div class="risk-detail-item">
                         <span>Velocity:</span>
-                        <span>${transaction.transactionVelocity}</span>
+                        <span style="color: ${transaction.transactionVelocity > 2 ? 'var(--color-warning)' : 'var(--color-text)'};">
+                            ${transaction.transactionVelocity} ${userProfile ? `(avg: ${userProfile.avgTransactionVelocity.toFixed(2)})` : ''}
+                        </span>
                     </div>
                     <div class="risk-detail-item">
                         <span>Location:</span>
@@ -742,6 +1071,19 @@ class FraudDetectionDashboard {
                         <span>Timestamp:</span>
                         <span>${new Date(transaction.timestamp).toLocaleString()}</span>
                     </div>
+                    ${riskReasons.length > 0 ? `
+                        <div style="margin-top: var(--space-16); padding: var(--space-16); background: var(--color-bg-4); border-radius: var(--radius-base); border-left: 4px solid var(--color-error);">
+                            <h4 style="margin: 0 0 var(--space-8) 0; color: var(--color-error);">🚨 Risk Factors Identified:</h4>
+                            <ul style="margin: 0; padding-left: var(--space-20);">
+                                ${riskReasons.map(reason => `<li style="margin-bottom: var(--space-4);">${reason}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : `
+                        <div style="margin-top: var(--space-16); padding: var(--space-16); background: var(--color-bg-3); border-radius: var(--radius-base); border-left: 4px solid var(--color-success);">
+                            <h4 style="margin: 0; color: var(--color-success);">✅ No significant risk factors detected</h4>
+                            <p style="margin: var(--space-8) 0 0 0; font-size: var(--font-size-sm);">This transaction follows normal patterns.</p>
+                        </div>
+                    `}
                 </div>
             </div>
         `;
@@ -837,20 +1179,24 @@ class FraudDetectionDashboard {
     }
 
     exportData() {
-        const data = this.currentTransactions.map(t => ({
-            'Transaction ID': t.id,
-            'User ID': t.userId,
-            'Transaction Type': t.transactionType,
-            'Risk Score': t.riskScore,
-            'Risk Category': t.riskCategory,
-            'Anomaly': t.isAnomaly ? 'Yes' : 'No',
-            'Fraud': t.fraud ? 'Yes' : 'No',
-            'Login Attempts': t.loginAttempts,
-            'Transaction Count': t.transactionCount,
-            'Transaction Velocity': t.transactionVelocity,
-            'Location': t.location,
-            'Timestamp': t.timestamp
-        }));
+        const data = this.currentTransactions.map(t => {
+            const riskReasons = this.getRiskReasons(t);
+            return {
+                'Transaction ID': t.id,
+                'User ID': t.userId,
+                'Transaction Type': t.transactionType,
+                'Risk Score': t.riskScore,
+                'Risk Category': t.riskCategory,
+                'Anomaly': t.isAnomaly ? 'Yes' : 'No',
+                'Fraud': t.fraud ? 'Yes' : 'No',
+                'Risk Reasons': riskReasons.join('; '),
+                'Login Attempts': t.loginAttempts,
+                'Transaction Count': t.transactionCount,
+                'Transaction Velocity': t.transactionVelocity,
+                'Location': t.location,
+                'Timestamp': t.timestamp
+            };
+        });
         
         const csv = this.convertToCSV(data);
         this.downloadCSV(csv, 'fraud_detection_results.csv');

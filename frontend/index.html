@@ -111,7 +111,7 @@
                             <div class="upload-icon">📁</div>
                             <p>Drag & drop your CSV file here or <button class="btn--primary" id="file-select-btn">Select File</button></p>
                             <input type="file" id="csv-file" accept=".csv" hidden>
-                            <small>Supported format: CSV with columns (User_ID, Transaction_Type, Login_Attempts, Transaction_Count, Transaction_Velocity, Location)</small>
+                            <small>Supported format: CSV with columns (User_ID, Transaction_Type, Login_Attempts, Transaction_Count, Transaction_Velocity, Location, Timestamp, Fraud). Column names are flexible - system will auto-detect variations.</small>
                         </div>
                     </div>
                     <div class="upload-status hidden" id="upload-status"></div>
@@ -140,6 +140,7 @@
                                     <th>Risk Score</th>
                                     <th>Risk Category</th>
                                     <th>Anomaly Status</th>
+                                    <th>Risk Reasons</th>
                                     <th>Timestamp</th>
                                 </tr>
                             </thead>
