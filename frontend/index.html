@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fraud Detection Admin Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body data-color-scheme="dark">
+    <!-- Navigation Sidebar -->
+    <nav class="sidebar">
+        <div class="sidebar__header">
+            <h2>🛡️ Fraud Guard</h2>
+        </div>
+        <div class="sidebar__nav">
+            <button class="nav-btn active" data-page="dashboard">
+                📊 Dashboard
+            </button>
+            <button class="nav-btn" data-page="historical">
+                📈 Historical Analysis
+            </button>
+            <button class="nav-btn" data-page="realtime">
+                🔴 Real-Time Monitor
+            </button>
+            <button class="nav-btn" data-page="profiles">
+                👥 User Profiles
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Header -->
+        <header class="header">
+            <div class="header__content">
+                <h1 id="page-title">Dashboard Overview</h1>
+                <div class="header__actions">
+                    <div class="user-profile">
+                        <span>Admin User</span>
+                        <div class="user-avatar">A</div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Dashboard Page -->
+        <section id="dashboard-page" class="page active">
+            <div class="dashboard-grid">
+                <div class="metric-cards">
+                    <div class="card metric-card">
+                        <div class="metric-card__content">
+                            <div class="metric-value">1,247</div>
+                            <div class="metric-label">Total Transactions</div>
+                            <div class="metric-change positive">+12%</div>
+                        </div>
+                    </div>
+                    <div class="card metric-card">
+                        <div class="metric-card__content">
+                            <div class="metric-value">89</div>
+                            <div class="metric-label">High Risk Transactions</div>
+                            <div class="metric-change negative">+5%</div>
+                        </div>
+                    </div>
+                    <div class="card metric-card">
+                        <div class="metric-card__content">
+                            <div class="metric-value">99.5%</div>
+                            <div class="metric-label">Detection Rate</div>
+                            <div class="metric-change positive">+0.2%</div>
+                        </div>
+                    </div>
+                    <div class="card metric-card">
+                        <div class="metric-card__content">
+                            <div class="metric-value">342</div>
+                            <div class="metric-label">Anomalous Users</div>
+                            <div class="metric-change neutral">No change</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chart-grid">
+                    <div class="card chart-card">
+                        <h3>Risk Distribution</h3>
+                        <div class="chart-container" style="position: relative; height: 300px;">
+                            <canvas id="riskChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="card chart-card">
+                        <h3>Transactions Over Time</h3>
+                        <div class="chart-container" style="position: relative; height: 300px;">
+                            <canvas id="timeChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="card chart-card">
+                        <h3>Top Risk Factors</h3>
+                        <div class="chart-container" style="position: relative; height: 300px;">
+                            <canvas id="factorsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Historical Analysis Page -->
+        <section id="historical-page" class="page">
+            <div class="page-content">
+                <div class="card upload-section">
+                    <h3>Upload Historical Transaction Data</h3>
+                    <div class="upload-area" id="upload-area">
+                        <div class="upload-content">
+                            <div class="upload-icon">📁</div>
+                            <p>Drag & drop your CSV file here or <button class="btn--primary" id="file-select-btn">Select File</button></p>
+                            <input type="file" id="csv-file" accept=".csv" hidden>
+                            <small>Supported format: CSV with columns (User_ID, Transaction_Type, Login_Attempts, Transaction_Count, Transaction_Velocity, Location)</small>
+                        </div>
+                    </div>
+                    <div class="upload-status hidden" id="upload-status"></div>
+                </div>
+
+                <div class="card data-section">
+                    <div class="section-header">
+                        <h3>Transaction Analysis Results</h3>
+                        <div class="filters">
+                            <select class="form-control" id="risk-filter">
+                                <option value="">All Risk Levels</option>
+                                <option value="Low">Low Risk</option>
+                                <option value="Moderate">Moderate Risk</option>
+                                <option value="High">High Risk</option>
+                            </select>
+                            <button class="btn--outline" id="export-btn">Export Results</button>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table" id="historical-table">
+                            <thead>
+                                <tr>
+                                    <th>Transaction ID</th>
+                                    <th>User ID</th>
+                                    <th>Type</th>
+                                    <th>Risk Score</th>
+                                    <th>Risk Category</th>
+                                    <th>Anomaly Status</th>
+                                    <th>Timestamp</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historical-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Real-Time Monitor Page -->
+        <section id="realtime-page" class="page">
+            <div class="realtime-grid">
+                <div class="card input-section">
+                    <h3>Manual Transaction Entry</h3>
+                    <form id="transaction-form" class="transaction-form">
+                        <div class="form-group">
+                            <label class="form-label">User ID</label>
+                            <input type="text" class="form-control" id="user-id" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Transaction Type</label>
+                            <select class="form-control" id="transaction-type" required>
+                                <option value="">Select Type</option>
+                                <option value="Credit Card">Credit Card</option>
+                                <option value="Debit Card">Debit Card</option>
+                                <option value="UPI">UPI</option>
+                                <option value="Net Banking">Net Banking</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Login Attempts</label>
+                                <input type="number" class="form-control" id="login-attempts" min="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Transaction Count</label>
+                                <input type="number" class="form-control" id="transaction-count" min="1" required>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Transaction Velocity</label>
+                                <input type="number" class="form-control" id="transaction-velocity" step="0.01" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Location</label>
+                                <input type="text" class="form-control" id="location" required>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn--primary btn--full-width">Analyze Transaction</button>
+                    </form>
+                </div>
+
+                <div class="card assessment-section">
+                    <h3>Risk Assessment</h3>
+                    <div class="assessment-content" id="assessment-content">
+                        <div class="assessment-placeholder">
+                            <p>Enter transaction details to see risk assessment</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card live-feed">
+                    <h3>Live Transaction Feed</h3>
+                    <div class="feed-content" id="live-feed">
+                        <!-- Live transactions will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- User Profiles Page -->
+        <section id="profiles-page" class="page">
+            <div class="page-content">
+                <div class="card search-section">
+                    <div class="search-header">
+                        <h3>User Behavior Profiles</h3>
+                        <div class="search-controls">
+                            <input type="text" class="form-control" id="user-search" placeholder="Search by User ID">
+                            <button class="btn--outline" id="search-btn">Search</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="profiles-grid" id="profiles-grid">
+                    <!-- User profile cards will be populated here -->
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal for detailed views -->
+    <div class="modal hidden" id="detail-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Details</h3>
+                <button class="modal-close" id="modal-close">×</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Modal content will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div class="loading-spinner hidden" id="loading">
+        <div class="spinner"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

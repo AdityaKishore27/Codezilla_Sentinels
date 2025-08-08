@@ -1,0 +1,13 @@
+feature,importance
+LoginAttempt,0.70694137
+TransactionVelocity,0.16550788
+TransactionCount,0.058592044
+Transaction_Type_Encoded,0.0132412175
+LastTransaction_Encoded,0.011481189
+IP_Subnet_Encoded,0.01084704
+Hour,0.007417335
+LastTransaction Time,0.0070973113
+Month,0.005823756
+DayOfWeek,0.0050064935
+Utility_Encoded,0.004603631
+Location_Encoded,0.003440688

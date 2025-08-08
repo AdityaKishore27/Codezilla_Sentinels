@@ -1,0 +1,3 @@
+Model,Type,Accuracy,Key Strength,Use Case,Business Value
+XGBoost (Fraud Risk Scoring),Supervised Classification,0.9995,Real-time transaction scoring,Transaction-level fraud detection,"$1,990,000 prevented losses"
+Isolation Forest (Behavior Profiling),Unsupervised Anomaly Detection,0.900 (Normal Detection Rate),User behavior pattern detection,Account-level risk assessment,26.1% fraud rate in flagged users
